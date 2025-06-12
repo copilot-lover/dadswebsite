@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Playlist Transcript Downloader</title>
+  <link rel="icon" href="https://www.youtube.com/s/desktop/9fd1cc5e/img/favicon.ico" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg: #faf9fc; --card-bg: #ffffff; --primary: #7f5af0; --accent: #e0def4; --text: #333; --muted: #666; --radius: 12px; --transition: 0.3s ease; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+    #loader { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; flex-direction: column; transition: opacity var(--transition); z-index: 100; }
+    #loader.hidden { opacity: 0; pointer-events: none; }
+    .spinner { width: 60px; height: 60px; border: 6px solid var(--accent); border-top: 6px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .card { background: var(--card-bg); padding: 2rem; border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,0.05); width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 1rem; }
+    h1 { font-size: 1.8rem; color: var(--primary); text-align: center; }
+    .input-group { position: relative; }
+    select, input[type="search"], input[type="url"] { width: 100%; padding: 0.75rem 1rem; border: 2px solid var(--accent); border-radius: var(--radius); font-size: 1rem; transition: var(--transition); background: transparent; color: var(--text); }
+    select:focus, input:focus { border-color: var(--primary); outline: none; }
+    .suggestions { position: absolute; top: calc(100% + 0.25rem); left: 0; right: 0; background: var(--card-bg); border: 1px solid var(--accent); border-radius: var(--radius); max-height: 200px; overflow-y: auto; z-index: 10; }
+    .suggestion { padding: 0.5rem 1rem; cursor: pointer; transition: var(--transition); color: var(--text); }
+    .suggestion:hover { background: var(--accent); }
+    button { padding: 0.75rem; background: var(--primary); color: #fff; border: none; border-radius: var(--radius); font-size: 1rem; cursor: pointer; transition: var(--transition); }
+    button:disabled { background: var(--accent); cursor: not-allowed; }
+    #progress-container { height: 8px; width: 100%; background: var(--accent); border-radius: 4px; overflow: hidden; }
+    #bar { width: 0%; height: 100%; background: var(--primary); transition: width var(--transition); }
+    #status { color: var(--muted); font-size: 0.9rem; text-align: center; }
+    #output { background: var(--accent); padding: 1rem; border-radius: var(--radius); max-height: 200px; overflow-y: auto; font-size: 0.9rem; color: var(--text); white-space: pre-wrap; }
+    .credits { font-size: 0.8rem; color: var(--muted); text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="loader"><div class="spinner"></div><p style="margin-top:1rem;color:var(--muted)">Initializing…</p></div>
+  <main class="card" id="main" aria-live="polite" hidden>
+    <h1>Transcript Downloader</h1>
+    <div class="input-group"><select id="modeSelect"><option value="search">Search Playlists</option><option value="direct">Direct URL</option></select></div>
+    <div class="input-group" id="searchGroup"><input type="search" id="searchInput" placeholder="Search YouTube playlists…"><div class="suggestions" id="suggestions"></div></div>
+    <div class="input-group" id="directGroup" hidden><input type="url" id="directInput" placeholder="Paste playlist URL here"></div>
+    <button id="downloadBtn" disabled>Download Transcripts</button>
+    <div id="progress-container"><div id="bar"></div></div>
+    <p id="status"></p>
+    <div id="output"></div>
+    <div class="credits">🎉 Built by Seth • <a id="sourceLink" href="#">Source</a></div>
+  </main>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const backend = 'https://ilovemydad.onrender.com';
+      let selected = '';
+      const loader = document.getElementById('loader'), main = document.getElementById('main');
+      const mode = document.getElementById('modeSelect'), sgroup = document.getElementById('searchGroup'), dgroup = document.getElementById('directGroup');
+      const sin = document.getElementById('searchInput'), sug = document.getElementById('suggestions'), din = document.getElementById('directInput');
+      const btn = document.getElementById('downloadBtn'), bar = document.getElementById('bar'), status = document.getElementById('status'), out = document.getElementById('output');
+
+      // Show main and hide loader immediately
+      loader.classList.add('hidden'); main.hidden = false;
+
+      mode.onchange = () => {
+        sgroup.hidden = mode.value !== 'search'; dgroup.hidden = mode.value !== 'direct'; selected = ''; btn.disabled = true;
+      };
+
+      sin.oninput = async () => {
+        const q = sin.value.trim(); sug.innerHTML = '';
+        if (q.length < 3) return;
+        try {
+          const r = await fetch(`https://yewtu.be/api/v1/search?type=playlist&query=${encodeURIComponent(q)}`);
+          const d = await r.json();
+          d.filter(i => i.type === 'playlist').forEach(i => {
+            const e = document.createElement('div'); e.className = 'suggestion'; e.textContent = i.title;
+            e.onclick = () => { selected = `https://www.youtube.com/playlist?list=${i.id}`; sin.value = selected; sug.innerHTML = ''; btn.disabled = false; };
+            sug.appendChild(e);
+          });
+        } catch {}
+      };
+
+      din.oninput = () => { selected = din.value.trim(); btn.disabled = !selected; };
+
+      btn.onclick = async () => {
+        out.textContent = ''; status.textContent = 'Submitting…'; bar.style.width = '5%';
+        try {
+          const resp = await fetch(backend + '/transcripts', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({playlist_url:selected}) });
+          if (!resp.ok) throw new Error(await resp.text());
+          const { job_id } = await resp.json(); status.textContent = 'Processing…';
+          const es = new EventSource(backend + '/status/' + job_id);
+          es.onmessage = ({data}) => {
+            const evt = JSON.parse(data);
+            bar.style.width = evt.progress + '%'; status.textContent = evt.message;
+            if (evt.progress >= 100) {
+              es.close(); status.textContent = 'Downloading…';
+              const a = document.createElement('a'); a.href = backend + '/download/' + job_id; a.download='transcripts.zip'; a.click(); bar.style.width='100%'; status.textContent='✅ Done';
+            }
+          };
+          es.onerror = () => { es.close(); status.textContent='❌ Stream error'; bar.style.width='0%'; };
+        } catch (e) {
+          status.textContent='❌ ' + e.message; bar.style.width='0%';
+        }
+      };
+    });
+  </script>
+</body>
+</html>
